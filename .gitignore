@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.tmp
+*.wav
+*.log
+session.db
+wisprFlow_session.json
+.vscode/
+.idea/
