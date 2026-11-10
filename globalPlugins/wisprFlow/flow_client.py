@@ -73,8 +73,8 @@ class FlowClient:
             timeout=180.0,  # 3-minute timeout for long speech
         )
 
-    def _segment_audio(self, wav_path_or_bytes, max_segment_sec: int = 200) -> List[bytes]:
-        """Splits long WAV audio into safe segments (default 200s each) using standard library wave."""
+    def _segment_audio(self, wav_path_or_bytes, max_segment_sec: int = 60) -> List[bytes]:
+        """Splits long WAV audio into safe segments (default 60s each, ~1.9MB) using standard library wave."""
         if isinstance(wav_path_or_bytes, bytes):
             stream = io.BytesIO(wav_path_or_bytes)
         elif os.path.isfile(str(wav_path_or_bytes)):

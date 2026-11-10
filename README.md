@@ -1,119 +1,163 @@
 # Wispr Flow for NVDA
 
-**Accessible, High-Accuracy AI Voice Dictation for the NVDA Screen Reader**
+**Ultra-lightweight, 100% accessible AI voice dictation add-on for the NVDA screen reader.**  
+Powered by [Wispr Flow AI](https://wisprflow.ai).
 
-Wispr Flow for NVDA brings the power of **Wispr Flow AI** (`wisprflow.ai`) directly into Windows for blind and visually impaired users. It provides lightning-fast, context-aware speech-to-text with zero audio ducking, direct speech confirmation, clean HTML-to-text formatting, and instantaneous clipboard pasting.
+Developed by **Ashutosh Chaudhary** ([@ashu-choudhury](https://github.com/ashu-choudhury)).
 
 ---
 
-## Key Features
+## Why This Add-on Exists (The Problem with Official Wispr Flow)
 
-- **Zero Audio Ducking (100% Volume Always)**: Windows Communications Audio Ducking is completely bypassed. Your screen reader (NVDA, JAWS, or SAPI) will never be silenced, lowered, or muted while dictating.
-- **Reliable Toggle Mode**: Press once to start listening, speak naturally for as long as you want, and press once again to stop. Includes hardware debounce to prevent accidental toggles from keyboard repeat.
-- **Direct Speech Confirmation**: The moment transcription completes, NVDA immediately speaks what was recognized through your synthesizer and displays it on Braille displays so you always know what was typed.
-- **Instant Clipboard Pasting**: Text is placed on the Windows clipboard and inserted instantly via <kbd>Ctrl + V</kbd>. No character-by-character typing lag or cursor jitter.
-- **Clean Text Formatting (Zero HTML Clutter)**: Automatically detects and transforms HTML structures (such as `<ol><li>...</li></ol>` into clean numbered lists `1. ...\n2. ...` and `<ul>` into clean bullet points), unescaping entities (`&amp;`, `&quot;`) so your documents and code remain clean.
-- **No Developer API Keys Needed**: Log in normally using your standard web browser (Google, Apple, or Email). Tokens are saved locally in `%APPDATA%\nvda\wisprFlow_session.json` using pure JSON (fully compatible with NVDA's Python runtime without `sqlite3` dependency).
-- **Fully Customizable Shortcuts**: Easily change or add shortcuts through NVDA's built-in Input Gestures dialog.
+[Wispr Flow](https://wisprflow.ai) provides exceptional speech recognition and AI context-aware text formatting. However, the official Windows desktop app is fundamentally inaccessible and problematic for blind and visually impaired users:
+
+1. **Destructive Audio Ducking (Silences Screen Readers)**:  
+   The official Wispr Flow desktop app triggers Windows Communication Audio Ducking, attenuating or completely muting system audio whenever the microphone is active. For screen reader users (NVDA, JAWS), this silences the speech synthesizer, making it impossible to hear what you are doing, verify cursor position, or receive audio feedback while dictating.
+2. **Resource-Heavy Electron Bloat**:  
+   The official application is packaged with Chromium/Electron, consuming hundreds of megabytes (and often gigabytes) of RAM, running multiple persistent background helper processes, and causing CPU spikes even when idle.
+3. **Focus Loss & Field Glitches**:  
+   Its floating HUD window often intercepts or steals keyboard focus, breaks input focus in terminal emulators (PowerShell, WSL), and causes missed keystrokes when typing into code editors or rich web controls.
+4. **Daemon Dependency**:  
+   Requires a continuous background daemon and system tray application to be running at all times.
+
+---
+
+## The Solution: Wispr Flow for NVDA
+
+This add-on connects NVDA directly to Wispr Flow's neural transcription servers via low-level gRPC streaming, offering a native, lightning-fast, and completely accessible experience:
+
+- **Zero Audio Ducking (100% Screen Reader Volume)**:  
+  Uses native low-level shared WASAPI capture (`winmm.dll`). Screen reader audio is never lowered, muted, or ducked. You can speak and listen to NVDA at the exact same time.
+- **Ultra-Lightweight (< 10 MB RAM, 0% CPU Idle)**:  
+  Runs natively inside NVDA's existing Python engine. No Electron, no browser windows, no extra background processes.
+- **Uses Your Existing Wispr Flow Account**:  
+  Sign in once via your default web browser using Wispr's official OAuth device code flow. Works with your regular account (free or paid) — **no developer API keys, credit cards, or credit limits required**.
+- **Long Speech Handling (5+ Minute Dictations)**:  
+  Wispr Flow's gRPC servers reject audio payloads larger than 4 MB. This add-on features an intelligent audio segmenter that splits long speeches into safe, valid RIFF WAV chunks (~60s each) and stitches the transcribed text seamlessly.
+- **Fail-Safe Audio Protection (Never Lose Your Speech)**:  
+  Audio is always saved locally to `%APPDATA%\nvda\last_dictation.wav` before uploading. If your internet disconnects or the request fails, NVDA announces:  
+  > *"Sorry, your request failed. Press shortcut again to resend."*  
+  Pressing the shortcut immediately resends the saved audio without making you speak again!
+- **Clean Text & List Formatting (Zero HTML Clutter)**:  
+  Wispr's AI often formats structured thoughts into HTML tags (`<ol><li>...</li></ol>`, `<ul>`, `<p>`). This add-on automatically detects and transforms HTML into clean, human-readable plain text:
+  ```
+  1. First item
+  2. Second item
+  - Bullet item
+  ```
+- **Instant Clipboard Insertion (<kbd>Ctrl + V</kbd>)**:  
+  Inserts transcribed text instantly using high-speed clipboard pasting. Preserves control focus, works across all text areas, and prevents typing lag.
+- **Direct Speech Feedback & Braille Output**:  
+  Speaks the transcribed text aloud immediately after insertion so you know exactly what was written, with full Braille display mirroring.
+- **Toggle Dictation Mode**:  
+  Simple, reliable toggle mode: press once to start recording, speak naturally, and press again to transcribe and insert. Includes a 500ms hardware debounce to prevent accidental double-toggles.
 
 ---
 
 ## Default Shortcuts
 
-| Shortcut | Action |
+| Shortcut | Description |
 |---|---|
-| <kbd>Windows + Space</kbd> | Toggle Dictation (Start / Stop & Paste) |
+| <kbd>Windows + Space</kbd> | Toggle Dictation (Start recording / Stop, transcribe & paste) |
 | <kbd>Ctrl + Windows</kbd> | Alternate Toggle Dictation |
 
-> **Tip**: You can customize these shortcuts anytime by going to **NVDA Menu (<kbd>NVDA + N</kbd>) &rarr; Preferences &rarr; Input Gestures &rarr; Wispr Flow**.
+> **Customization**: You can customize these shortcuts anytime via **NVDA Menu (<kbd>NVDA + N</kbd>) &rarr; Preferences &rarr; Input Gestures &rarr; Wispr Flow**.
 
 ---
 
-## Installation
+## Compatibility
 
-### Option 1: Install from Add-on Package
-1. Download or locate `wisprFlow-1.0.0.nvda-addon`.
-2. Press <kbd>Enter</kbd> on the file or open it with NVDA.
-3. Confirm the installation prompt and restart NVDA when prompted.
-
-### Option 2: Install from Source
-Run the included build script with the `--install` flag:
-```powershell
-python build_addon.py --install
-```
-Then restart NVDA (<kbd>Ctrl + Alt + N</kbd>).
+- **Minimum NVDA Version**: 2024.1 (Python 3.11+)
+- **Tested & Verified Versions**: NVDA 2024.x, NVDA 2025.x, NVDA 2026.2 (Python 3.13 64-bit)
+- **Supported Operating Systems**: Windows 10, Windows 11 (AMD64)
 
 ---
 
-## How to Use
+## Quick Start Guide
 
-1. **Sign In**:
-   - Open **NVDA Menu (<kbd>NVDA + N</kbd>) &rarr; Preferences &rarr; Settings &rarr; Wispr Flow**.
-   - Click **Sign In via Browser...**.
-   - Complete your sign-in in your default web browser. Once finished, NVDA will announce that sign-in succeeded.
-2. **Dictate Anywhere**:
-   - Move your focus into any text box, edit field, terminal, or document (Notepad, Word, Chrome, Discord, Slack, etc.).
-   - Press <kbd>Windows + Space</kbd> (or <kbd>Ctrl + Windows</kbd>). You will hear a start chime and NVDA will say *"Listening..."*.
-   - Speak your sentence naturally.
-   - Press <kbd>Windows + Space</kbd> again. You will hear the chime, NVDA will announce the transcribed text, and it will be pasted directly into the field!
+### 1. Installation
+
+1. Download the latest `wisprFlow-1.0.0.nvda-addon` from [Releases](https://github.com/ashu-choudhury/WisprFlow-NVDA/releases).
+2. Open the file in Windows or press <kbd>Enter</kbd> to install it into NVDA.
+3. Restart NVDA when prompted.
+
+*(Or build and install from source using `python build_addon.py --install`)*.
+
+### 2. Sign In to Your Wispr Flow Account
+
+1. Press <kbd>NVDA + N</kbd> &rarr; **Preferences** &rarr; **Settings** &rarr; **Wispr Flow**.
+2. Tab to the **"Sign In via Browser..."** button and press <kbd>Enter</kbd> or <kbd>Space</kbd>.
+3. Your default web browser will open to Wispr Flow's authorization page.
+4. Log in with Google, Apple, or Email and click **Approve**.
+5. Return to NVDA — NVDA will announce: *"Successfully signed in to Wispr Flow as [Your Name]"*.
+
+### 3. Start Dictating
+
+1. Focus on any text field (Notepad, Word, Discord, browser, terminal, Visual Studio Code, etc.).
+2. Press <kbd>Windows + Space</kbd>. You will hear an activation chime and NVDA will say *"Listening..."*.
+3. Speak your thoughts naturally.
+4. Press <kbd>Windows + Space</kbd> again. You will hear a processing chime, NVDA will announce the transcribed text, and the text will be pasted instantly into the active field!
 
 ---
 
-## Settings & Preferences
+## Configuration & Settings
 
-Open **NVDA Settings (<kbd>NVDA + Ctrl + G</kbd>) &rarr; Wispr Flow**:
+Access preferences via **NVDA Settings (<kbd>NVDA + Ctrl + G</kbd>) &rarr; Wispr Flow**:
 
-- **Account Status**: View your logged-in email and Sign In / Sign Out buttons.
+- **Account Status**: Displays the connected email and provides *Sign In* / *Sign Out* buttons.
 - **Text Insertion Method**:
-  - *Paste via Clipboard (Instant, Recommended)*: Pastes all text at once with focus intact.
-  - *Type character-by-character (Legacy)*: Types characters one by one using synthetic input.
-- **Spoken Language**: Choose between English, Hindi, Hinglish (Hindi + English), Spanish, French, German, or Auto-detect.
-- **Play Sound Effects**: Toggle audio cue beeps on/off.
-- **Speak Status Notifications**: Toggle spoken status announcements ("Listening...", "Transcribing...") on/off.
+  - **Paste via Clipboard (Instant, Recommended)**: Pastes the entire text block simultaneously.
+  - **Type character-by-character**: Sends individual keystrokes (legacy mode).
+- **Spoken Language**: Choose between Auto-detect, English, Hindi, Hinglish (Hindi + English), Spanish, French, or German.
+- **Play Sound Effects**: Toggle audio beeps/chimes for start, stop, and errors.
+- **Voice Feedback**: Toggle NVDA spoken messages ("Listening...", "Transcribing...").
 
 ---
 
-## Architecture & Technical Overview
+## Architecture & Codebase Overview
 
 ```
-wisprFlow/
-├── manifest.ini                       # NVDA Add-on Metadata
-├── build_addon.py                     # Automatic packager and installer
+WisprFlow-NVDA/
+├── manifest.ini                   # NVDA Add-on manifest & compatibility range
+├── build_addon.py                 # Automated build & installation script
+├── .github/
+│   └── workflows/
+│       └── release.yml            # Automated CI/CD release packager
 └── globalPlugins/
     └── wisprFlow/
-        ├── __init__.py                # GlobalPlugin lifecycle & gesture engine
-        ├── settings.py                # wxPython settings panel under NVDA Preferences
-        ├── auth.py                    # Official device-code OAuth flow (api.wisprflow.ai)
-        ├── session_store.py           # Pure JSON token storage (%APPDATA%\nvda\wisprFlow_session.json)
-        ├── recognizer.py              # Pure winmm.dll 16kHz 16-bit Mono WAV capture (zero ducking)
-        ├── keyboard.py                # 64-bit safe Win32 clipboard paste & SendInput engine
-        ├── sound.py                   # NVDA tones.beep / winsound audio cues
-        ├── flow_client.py             # Runtime gRPC client loader & session manager
-        ├── wisprflow/
-        │   ├── protocol.py            # Protobuf request encoders & clean HTML-to-text parser
-        │   ├── client.py              # Robust route & auth facade
-        │   └── models.py              # Strong typing for routes, languages, and options
-        └── lib/
-            ├── py311/                 # Bundled grpcio wheels for Python 3.11
-            ├── py312/                 # Bundled grpcio wheels for Python 3.12
-            └── py313/                 # Bundled grpcio wheels for Python 3.13 (modern NVDA)
+        ├── __init__.py            # Main GlobalPlugin lifecycle, state machine & retry logic
+        ├── auth.py                # Device code OAuth flow & token refresh (api.wisprflow.ai)
+        ├── flow_client.py         # gRPC client facade, dynamic lib loader & 60s WAV segmenter
+        ├── recognizer.py          # Shared WASAPI audio recorder (16kHz 16-bit Mono, zero ducking)
+        ├── keyboard.py            # Win32 clipboard paste & synthetic input
+        ├── session_store.py       # Pure JSON token storage (%APPDATA%\nvda\wisprFlow_session.json)
+        ├── settings.py            # wxPython settings panel inside NVDA Preferences
+        ├── sound.py               # Sound cues via NVDA tones & Windows sound APIs
+        └── wisprflow/
+            ├── client.py          # Wispr gRPC endpoint coordinator
+            ├── protocol.py        # Protobuf binary encoders & clean HTML-to-text parser
+            └── models.py          # Route definitions, languages, and transcription options
 ```
-
-- **Backend Route**: Communicates directly with Wispr Flow's official edge inference servers at `inference.wisprflow.com:443` via gRPC streaming (`/flow_api.v1.TranscriptionService/TranscribeStream`).
-- **Audio Capture**: Utilizes Windows Multimedia (`winmm.dll`) MCI waveaudio directly into 16kHz mono linear PCM WAV bytes, ensuring zero ducking and zero dependency on PyAudio or PortAudio.
 
 ---
 
-## Standalone Python Client
+## Building from Source & Release Packaging
 
-In addition to the NVDA add-on, a standalone cross-platform Python CLI client is available in `standalone_client/`:
+To build the standalone `.nvda-addon` file locally:
+
 ```powershell
-cd standalone_client
-python main.py
+python build_addon.py
+```
+
+To build and immediately install into your active NVDA user profile:
+
+```powershell
+python build_addon.py --install
 ```
 
 ---
 
 ## License
 
-MIT License. Designed with accessibility at the core for blind and visually impaired pilots and developers.
+Released under the [MIT License](LICENSE).  
+Copyright (c) 2026 Ashutosh Chaudhary ([ashuchoudhury22@gmail.com](mailto:ashuchoudhury22@gmail.com)).

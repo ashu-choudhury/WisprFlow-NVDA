@@ -1,16 +1,70 @@
 """
 Build & Package Script for Wispr Flow NVDA Add-on.
 Creates wisprFlow-1.0.0.nvda-addon and optionally installs it directly into NVDA.
+Supports automatic dependency fetching for Python 3.11, 3.12, and 3.13 (win_amd64).
 """
 
 import argparse
 import os
 import shutil
+import subprocess
+import sys
+import tempfile
 import zipfile
 
 ADDON_NAME = "wisprFlow"
 VERSION = "1.0.0"
 OUTPUT_FILENAME = f"{ADDON_NAME}-{VERSION}.nvda-addon"
+PYTHON_VERSIONS = ["311", "312", "313"]
+
+
+def fetch_dependencies():
+    """Fetches and extracts gRPC wheels for Windows x64 across supported Python runtimes."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    lib_dir = os.path.join(current_dir, "globalPlugins", ADDON_NAME, "lib")
+    os.makedirs(lib_dir, exist_ok=True)
+
+    print("[Deps] Fetching pre-compiled dependencies for NVDA Python runtimes...")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        for py_ver in PYTHON_VERSIONS:
+            target_py_dir = os.path.join(lib_dir, f"py{py_ver}")
+            if os.path.isdir(target_py_dir) and os.path.isdir(os.path.join(target_py_dir, "grpc")):
+                print(f"[Deps] py{py_ver} already present, skipping.")
+                continue
+
+            print(f"[Deps] Downloading grpcio for Python {py_ver} (win_amd64)...")
+            ver_tmp = os.path.join(tmp_dir, f"py{py_ver}")
+            os.makedirs(ver_tmp, exist_ok=True)
+
+            cmd = [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--only-binary=:all:",
+                "--platform",
+                "win_amd64",
+                "--python-version",
+                py_ver,
+                "grpcio>=1.68.0",
+                "typing_extensions>=4.10.0",
+                "--dest",
+                ver_tmp,
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"[Deps] Warning: pip download failed for {py_ver}: {res.stderr}")
+                continue
+
+            os.makedirs(target_py_dir, exist_ok=True)
+            for f in os.listdir(ver_tmp):
+                if f.endswith(".whl"):
+                    whl_path = os.path.join(ver_tmp, f)
+                    with zipfile.ZipFile(whl_path, "r") as z:
+                        z.extractall(target_py_dir)
+
+            print(f"[Deps] Extracted dependencies for Python {py_ver} into lib/py{py_ver}.")
 
 
 def build_addon(output_path: str = OUTPUT_FILENAME) -> str:
@@ -86,8 +140,12 @@ def install_to_nvda():
 
 def main():
     parser = argparse.ArgumentParser(description="Build and install Wispr Flow NVDA add-on")
+    parser.add_argument("--fetch-deps", action="store_true", help="Download and extract gRPC runtime wheels")
     parser.add_argument("--install", action="store_true", help="Install directly into NVDA addons folder")
     args = parser.parse_args()
+
+    if args.fetch_deps:
+        fetch_dependencies()
 
     pkg_path = build_addon()
 

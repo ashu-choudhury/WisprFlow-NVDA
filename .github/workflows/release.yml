@@ -1,0 +1,38 @@
+name: Package & Release Add-on
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Package NVDA Add-on
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch Runtime Dependencies (gRPC wheels)
+        run: |
+          python build_addon.py --fetch-deps
+
+      - name: Package .nvda-addon
+        run: |
+          python build_addon.py
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            wisprFlow-*.nvda-addon
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
