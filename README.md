@@ -62,6 +62,7 @@ This add-on connects NVDA directly to Wispr Flow's neural transcription servers 
 |---|---|
 | <kbd>Windows + Space</kbd> | Toggle Dictation (Start recording / Stop, transcribe & paste) |
 | <kbd>Ctrl + Windows</kbd> | Alternate Toggle Dictation |
+| <kbd>Windows + Escape</kbd> | Cancel active dictation or retry immediately |
 
 > **Customization**: You can customize these shortcuts anytime via **NVDA Menu (<kbd>NVDA + N</kbd>) &rarr; Preferences &rarr; Input Gestures &rarr; Wispr Flow**.
 
@@ -106,13 +107,16 @@ This add-on connects NVDA directly to Wispr Flow's neural transcription servers 
 
 Access preferences via **NVDA Settings (<kbd>NVDA + Ctrl + G</kbd>) &rarr; Wispr Flow**:
 
-- **Account Status**: Displays the connected email and provides *Sign In* / *Sign Out* buttons.
+- **Account Profile & Dictation Statistics**: Displays live authenticated user details (Email, Display Name, User ID, Login Provider, Member Since) and real-time dictation statistics (total dictations, words transcribed, audio duration), with conditional *Sign In* / *Sign Out* buttons.
 - **Text Insertion Method**:
   - **Paste via Clipboard (Instant, Recommended)**: Pastes the entire text block simultaneously.
+  - **Copy to Clipboard only (Do not paste)**: Copies transcribed text to the clipboard without modifying active field.
   - **Type character-by-character**: Sends individual keystrokes (legacy mode).
 - **Spoken Language**: Choose between Auto-detect, English, Hindi, Hinglish (Hindi + English), Spanish, French, or German.
+- **Custom Vocabulary**: Enter comma-separated words, acronyms, or names to help Wispr recognize specialized terms.
 - **Play Sound Effects**: Toggle audio beeps/chimes for start, stop, and errors.
 - **Voice Feedback**: Toggle NVDA spoken messages ("Listening...", "Transcribing...").
+- **Automatic Updates**: Toggle startup update checks, or click *Check for Updates Now...* to check anytime.
 
 ---
 

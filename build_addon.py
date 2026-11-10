@@ -13,7 +13,7 @@ import tempfile
 import zipfile
 
 ADDON_NAME = "wisprFlow"
-VERSION = "1.0.0"
+VERSION = "1.0.2"
 OUTPUT_FILENAME = f"{ADDON_NAME}-{VERSION}.nvda-addon"
 PYTHON_VERSIONS = ["311", "312", "313"]
 

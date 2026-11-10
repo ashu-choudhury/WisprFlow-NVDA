@@ -26,7 +26,7 @@ import scriptHandler
 
 from .settings import WisprFlowSettingsPanel, confspec
 from .sound import play_sound
-from .keyboard import paste_text, type_text
+from .keyboard import paste_text, type_text, set_clipboard_text
 from .recognizer import AudioRecorder
 from .flow_client import FlowClient
 from .session_store import SessionStore
@@ -147,6 +147,30 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 self.stop_dictation()
 
     @scriptHandler.script(
+        description="Cancels active Wispr Flow recording or retry without transcribing or pasting.",
+        category="Wispr Flow",
+        gesture="kb:windows+escape",
+    )
+    def script_cancelDictation(self, gesture):
+        with self.lock:
+            if self.recognizer.is_recording:
+                try:
+                    self.recognizer.stop()
+                except Exception:
+                    pass
+                self._pending_retry = False
+                self._is_retrying = False
+                if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                    play_sound("error")
+                notify("Dictation cancelled.")
+            elif self._pending_retry:
+                self._pending_retry = False
+                self._is_retrying = False
+                notify("Dictation retry cancelled.")
+            else:
+                gesture.send()
+
+    @scriptHandler.script(
         description="Opens Wispr Flow settings dialog in NVDA.",
         category="Wispr Flow",
     )
@@ -204,9 +228,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
         lang = config.conf.get("wisprFlow", {}).get("language", "en")
         input_method = config.conf.get("wisprFlow", {}).get("inputMethod", "paste")
+        vocab_str = config.conf.get("wisprFlow", {}).get("customVocabulary", "")
+        custom_vocab = [w.strip() for w in vocab_str.split(",") if w.strip()] if vocab_str else None
 
         try:
-            text = self.client.transcribe(wav_path, language=lang)
+            text = self.client.transcribe(wav_path, language=lang, custom_vocabulary=custom_vocab)
             if text:
                 # SUCCESS! Clear retry state
                 self._pending_retry = False
@@ -223,22 +249,25 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 except Exception:
                     pass
 
-                # 1. Paste text into the focused control first
-                if input_method == "paste":
+                # Handle output method
+                if input_method == "clipboard_only":
+                    set_clipboard_text(text)
+                    time.sleep(0.08)
+                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                        play_sound("done")
+                    core.callLater(0, ui.message, f"Copied to clipboard: {text}")
+                elif input_method == "paste":
                     paste_text(text)
+                    time.sleep(0.08)
+                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                        play_sound("done")
+                    core.callLater(0, ui.message, text)
                 else:
                     type_text(text)
-
-                # 2. Short pause for synthetic keystrokes to complete in Windows queue
-                # so NVDA's keypress speech-cancellation hook does NOT interrupt speech!
-                time.sleep(0.08)
-
-                # 3. Audio confirmation chime
-                if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
-                    play_sound("done")
-
-                # 4. Speak the dictated text directly through NVDA speech and braille
-                core.callLater(0, ui.message, text)
+                    time.sleep(0.08)
+                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                        play_sound("done")
+                    core.callLater(0, ui.message, text)
             else:
                 # Actual empty speech (server succeeded but no words found)
                 self._pending_retry = False

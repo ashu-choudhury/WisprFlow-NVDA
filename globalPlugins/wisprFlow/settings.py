@@ -32,12 +32,14 @@ LANGUAGES = [
 
 INPUT_METHODS = [
     ("paste", "Paste via Clipboard (Instant, Recommended)"),
+    ("clipboard_only", "Copy to Clipboard only (Do not paste)"),
     ("type", "Type character-by-character (Legacy)"),
 ]
 
 confspec = {
     "language": "string(default=\"en\")",
     "inputMethod": "string(default=\"paste\")",
+    "customVocabulary": "string(default=\"\")",
     "soundFeedback": "boolean(default=True)",
     "voiceFeedback": "boolean(default=True)",
     "autoCheckUpdates": "boolean(default=True)",
@@ -111,7 +113,14 @@ class WisprFlowSettingsPanel(SettingsPanel):
         lang_idx = next((i for i, (k, _) in enumerate(LANGUAGES) if k == cur_lang), 0)
         self.langChoice.SetSelection(lang_idx)
 
-        # 5. Sound & Voice Feedback
+        # 5. Custom Vocabulary (Specialized words, names, jargon)
+        self.vocabCtrl = sHelper.addLabeledControl(
+            "Custom Vocabulary (comma-separated words or names):",
+            wx.TextCtrl
+        )
+        self.vocabCtrl.SetValue(config.conf.get("wisprFlow", {}).get("customVocabulary", ""))
+
+        # 6. Sound & Voice Feedback
         self.soundCheckbox = sHelper.addItem(
             wx.CheckBox(self, label="Play sound effects (audio cues)")
         )
@@ -201,7 +210,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
 
         def on_success(name):
             core.callLater(0, self._update_auth_state, True)
-            core.callLater(0, ui.message, f"Wispr Flow sign in successful! Welcome {name}.")
+            core.callLater(0, ui.message, f"Wispr Flow sign in successful! Welcome {name}. You can now close your browser tab.")
 
         def on_error(err):
             core.callLater(0, self._update_auth_state, False)
@@ -228,6 +237,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
 
         config.conf["wisprFlow"]["inputMethod"] = sel_input
         config.conf["wisprFlow"]["language"] = sel_lang
+        config.conf["wisprFlow"]["customVocabulary"] = self.vocabCtrl.GetValue().strip()
         config.conf["wisprFlow"]["soundFeedback"] = self.soundCheckbox.GetValue()
         config.conf["wisprFlow"]["voiceFeedback"] = self.voiceCheckbox.GetValue()
         config.conf["wisprFlow"]["autoCheckUpdates"] = self.updateCheckbox.GetValue()
