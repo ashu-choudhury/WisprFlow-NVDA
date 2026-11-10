@@ -1,12 +1,15 @@
 """
 gRPC Transcription Client for NVDA Wispr Flow Add-on.
 Dynamically loads bundled gRPC libraries matching the active Python runtime version.
+Supports multi-chunk long speech segmentation and resilient exception handling.
 """
 
 import base64
+import io
 import json
 import os
 import sys
+import wave
 from typing import Optional, List
 
 # Ensure bundled gRPC matching current Python version is on sys.path
@@ -67,8 +70,56 @@ class FlowClient:
                 port=443,
                 method="/flow_api.v1.TranscriptionService/TranscribeStream"
             ),
-            timeout=30.0,
+            timeout=180.0,  # 3-minute timeout for long speech
         )
+
+    def _segment_audio(self, wav_path_or_bytes, max_segment_sec: int = 200) -> List[bytes]:
+        """Splits long WAV audio into safe segments (default 200s each) using standard library wave."""
+        if isinstance(wav_path_or_bytes, bytes):
+            stream = io.BytesIO(wav_path_or_bytes)
+        elif os.path.isfile(str(wav_path_or_bytes)):
+            with open(str(wav_path_or_bytes), "rb") as f:
+                stream = io.BytesIO(f.read())
+        else:
+            return []
+
+        try:
+            with wave.open(stream, "rb") as wf:
+                framerate = wf.getframerate()
+                nchannels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                nframes = wf.getnframes()
+                frames = wf.readframes(nframes)
+        except Exception:
+            # If not a standard WAV header, return raw bytes as single payload
+            stream.seek(0)
+            return [stream.read()]
+
+        bytes_per_sec = framerate * sampwidth * nchannels
+        max_bytes = max_segment_sec * bytes_per_sec
+
+        if len(frames) <= max_bytes:
+            # Short audio: return single WAV
+            stream.seek(0)
+            return [stream.read()]
+
+        # Long audio: slice into max_segment_sec chunks
+        segments = []
+        offset = 0
+        total_len = len(frames)
+        while offset < total_len:
+            end = min(offset + max_bytes, total_len)
+            chunk_frames = frames[offset:end]
+            out = io.BytesIO()
+            with wave.open(out, "wb") as wf:
+                wf.setnchannels(nchannels)
+                wf.setsampwidth(sampwidth)
+                wf.setframerate(framerate)
+                wf.writeframes(chunk_frames)
+            segments.append(out.getvalue())
+            offset = end
+
+        return segments
 
     def transcribe(
         self,
@@ -98,16 +149,20 @@ class FlowClient:
             dictionary=custom_vocabulary or [],
         )
 
-        try:
+        segments = self._segment_audio(wav_path_or_bytes)
+        if not segments:
+            return None
+
+        results = []
+        for segment_bytes in segments:
+            # Let exceptions propagate to caller so retry logic can protect the audio!
             result = self._wispr_client.transcribe(
-                wav_path_or_bytes,
+                segment_bytes,
                 options=options
             )
-            if result and result.final:
-                return result.final.strip()
-            return None
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"[WisprFlow] Transcription error: {e}")
-            return None
+            if result and result.final and result.final.strip():
+                results.append(result.final.strip())
+
+        if results:
+            return "\n\n".join(results)
+        return None

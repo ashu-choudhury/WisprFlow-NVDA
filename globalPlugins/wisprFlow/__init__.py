@@ -2,10 +2,12 @@
 Wispr Flow NVDA Global Plugin.
 Integrates Wispr Flow AI Voice Dictation seamlessly into NVDA.
 Toggle Mode: Press once to start recording, press again to stop, transcribe, and paste.
+Includes resilient audio backup and instant retry/cancel fail-safe.
 """
 
 import ctypes
 import os
+import shutil
 import sys
 import threading
 import time
@@ -59,6 +61,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.lock = threading.Lock()
         self._last_toggle_time = 0.0
 
+        # Permanent fail-safe backup audio location
+        self._backup_wav_path = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")),
+            "nvda",
+            "last_dictation.wav"
+        )
+        self._pending_retry = False
+        self._is_retrying = False
+        self._last_fail_time = 0.0
+
     def terminate(self):
         try:
             gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(WisprFlowSettingsPanel)
@@ -93,6 +105,36 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return
 
         with self.lock:
+            # Check if there is a failed dictation awaiting retry (within 90s)
+            if self._pending_retry and os.path.isfile(self._backup_wav_path):
+                if now - self._last_fail_time < 90.0:
+                    if self._is_retrying:
+                        # User tapped shortcut while already retrying -> CANCEL SPEECH!
+                        self._is_retrying = False
+                        self._pending_retry = False
+                        self._last_toggle_time = now
+                        if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                            play_sound("error")
+                        notify("Speech cancelled.")
+                        return
+                    else:
+                        # User pressed shortcut to RESEND:
+                        self._is_retrying = True
+                        self._last_toggle_time = now
+                        if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+                            play_sound("transcribing")
+                        notify("Resending audio...")
+                        threading.Thread(
+                            target=self._process_transcription,
+                            args=(self._backup_wav_path,),
+                            daemon=True
+                        ).start()
+                        return
+                else:
+                    self._pending_retry = False
+                    self._is_retrying = False
+
+            # Normal dictation toggle:
             if not self.recognizer.is_recording:
                 self._last_toggle_time = now
                 self.start_dictation()
@@ -120,6 +162,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return
 
         try:
+            self._pending_retry = False
+            self._is_retrying = False
             self.recognizer.start()
             if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
                 play_sound("start")
@@ -135,9 +179,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         notify("Transcribing...")
 
         wav_path = self.recognizer.stop()
+        if wav_path and os.path.isfile(wav_path):
+            try:
+                shutil.copy2(wav_path, self._backup_wav_path)
+            except Exception:
+                pass
+
         threading.Thread(
             target=self._process_transcription,
-            args=(wav_path,),
+            args=(self._backup_wav_path if os.path.isfile(self._backup_wav_path) else wav_path,),
             daemon=True
         ).start()
 
@@ -154,6 +204,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         try:
             text = self.client.transcribe(wav_path, language=lang)
             if text:
+                # SUCCESS! Clear retry state
+                self._pending_retry = False
+                self._is_retrying = False
+
                 # 1. Paste text into the focused control first
                 if input_method == "paste":
                     paste_text(text)
@@ -171,15 +225,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 # 4. Speak the dictated text directly through NVDA speech and braille
                 core.callLater(0, ui.message, text)
             else:
+                # Actual empty speech (server succeeded but no words found)
+                self._pending_retry = False
+                self._is_retrying = False
                 if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
                     play_sound("error")
                 notify("No speech detected.")
         except Exception as e:
+            # FAILURE! Keep audio intact so user never loses their speech!
+            import traceback
+            traceback.print_exc()
+            self._pending_retry = True
+            self._is_retrying = False
+            self._last_fail_time = time.time()
             if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
                 play_sound("error")
-            notify(f"Transcription failed: {e}")
-        finally:
-            try:
-                os.remove(wav_path)
-            except Exception:
-                pass
+            notify("Sorry, your request failed. Press shortcut again to resend.")

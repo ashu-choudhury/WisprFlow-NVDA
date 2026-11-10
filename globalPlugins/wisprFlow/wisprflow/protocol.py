@@ -96,13 +96,25 @@ def encode_requests(
     audio: bytes,
     options: TranscriptionOptions,
     context: TranscriptionContext | None = None,
+    chunk_size: int = 32768,  # 32 KB per chunk (~1.02s of 16kHz mono audio)
 ) -> Iterator[bytes]:
     session_id = str(uuid.uuid4())
     request_id = str(uuid.uuid4())
     yield _init_request(user_id, session_id, request_id, options) + _commit(False)
     if context is not None and not context.is_empty:
         yield _context_request(context) + _commit(False)
-    yield _audio_request(audio) + _commit(True)
+
+    total_len = len(audio)
+    if total_len == 0:
+        return
+
+    offset = 0
+    while offset < total_len:
+        next_offset = min(offset + chunk_size, total_len)
+        chunk = audio[offset:next_offset]
+        is_last = (next_offset == total_len)
+        yield _audio_request(chunk) + _commit(is_last)
+        offset = next_offset
 
 
 def decode_responses(
