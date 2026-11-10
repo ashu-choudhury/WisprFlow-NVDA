@@ -16,6 +16,7 @@ except (ImportError, AttributeError):
 
 from .session_store import SessionStore
 from .auth import AuthManager
+from .updater import check_for_updates
 
 LANGUAGES = [
     ("en", "English"),
@@ -37,6 +38,7 @@ confspec = {
     "inputMethod": "string(default=\"paste\")",
     "soundFeedback": "boolean(default=True)",
     "voiceFeedback": "boolean(default=True)",
+    "autoCheckUpdates": "boolean(default=True)",
 }
 
 
@@ -100,7 +102,18 @@ class WisprFlowSettingsPanel(SettingsPanel):
         )
         self.voiceCheckbox.SetValue(config.conf.get("wisprFlow", {}).get("voiceFeedback", True))
 
-        # 5. Helpful Shortcut note
+        # 5. Automatic Updates
+        self.updateCheckbox = sHelper.addItem(
+            wx.CheckBox(self, label="Automatically check for updates on startup")
+        )
+        self.updateCheckbox.SetValue(config.conf.get("wisprFlow", {}).get("autoCheckUpdates", True))
+
+        self.checkUpdatesButton = sHelper.addItem(
+            wx.Button(self, label="Check for Updates Now...")
+        )
+        self.checkUpdatesButton.Bind(wx.EVT_BUTTON, lambda evt: check_for_updates(manual=True))
+
+        # 6. Helpful Shortcut note
         sHelper.addItem(
             wx.StaticText(
                 self,
@@ -140,3 +153,4 @@ class WisprFlowSettingsPanel(SettingsPanel):
         config.conf["wisprFlow"]["language"] = sel_lang
         config.conf["wisprFlow"]["soundFeedback"] = self.soundCheckbox.GetValue()
         config.conf["wisprFlow"]["voiceFeedback"] = self.voiceCheckbox.GetValue()
+        config.conf["wisprFlow"]["autoCheckUpdates"] = self.updateCheckbox.GetValue()

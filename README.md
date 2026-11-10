@@ -3,7 +3,7 @@
 **Ultra-lightweight, 100% accessible AI voice dictation add-on for the NVDA screen reader.**  
 Powered by [Wispr Flow AI](https://wisprflow.ai).
 
-Developed by **Ashutosh Chaudhary** ([@ashu-choudhury](https://github.com/ashu-choudhury)).
+Developed by **ashu-choudhury** ([@ashu-choudhury](https://github.com/ashu-choudhury)).
 
 ---
 
@@ -49,6 +49,8 @@ This add-on connects NVDA directly to Wispr Flow's neural transcription servers 
   Inserts transcribed text instantly using high-speed clipboard pasting. Preserves control focus, works across all text areas, and prevents typing lag.
 - **Direct Speech Feedback & Braille Output**:  
   Speaks the transcribed text aloud immediately after insertion so you know exactly what was written, with full Braille display mirroring.
+- **Automatic GitHub Updates**:  
+  Automatically checks GitHub Releases for new updates. If a newer version is found, an accessible dialog displays the changelog with **Install** and **Not Needed** buttons, allowing one-click background installation.
 - **Toggle Dictation Mode**:  
   Simple, reliable toggle mode: press once to start recording, speak naturally, and press again to transcribe and insert. Includes a 500ms hardware debounce to prevent accidental double-toggles.
 
@@ -133,6 +135,7 @@ WisprFlow-NVDA/
         ├── session_store.py       # Pure JSON token storage (%APPDATA%\nvda\wisprFlow_session.json)
         ├── settings.py            # wxPython settings panel inside NVDA Preferences
         ├── sound.py               # Sound cues via NVDA tones & Windows sound APIs
+        ├── updater.py             # Automatic GitHub update checker & installer
         └── wisprflow/
             ├── client.py          # Wispr gRPC endpoint coordinator
             ├── protocol.py        # Protobuf binary encoders & clean HTML-to-text parser
@@ -160,4 +163,4 @@ python build_addon.py --install
 ## License
 
 Released under the [MIT License](LICENSE).  
-Copyright (c) 2026 Ashutosh Chaudhary ([ashuchoudhury22@gmail.com](mailto:ashuchoudhury22@gmail.com)).
+Copyright (c) 2026 ashu-choudhury (https://github.com/ashu-choudhury).

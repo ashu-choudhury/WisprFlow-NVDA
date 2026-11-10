@@ -31,6 +31,7 @@ from .recognizer import AudioRecorder
 from .flow_client import FlowClient
 from .session_store import SessionStore
 from .auth import AuthManager
+from .updater import check_for_updates
 
 user32 = ctypes.windll.user32
 
@@ -70,6 +71,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self._pending_retry = False
         self._is_retrying = False
         self._last_fail_time = 0.0
+
+        if config.conf.get("wisprFlow", {}).get("autoCheckUpdates", True):
+            core.callLater(4000, check_for_updates, False)
 
     def terminate(self):
         try:
