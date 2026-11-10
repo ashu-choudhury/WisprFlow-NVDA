@@ -97,6 +97,20 @@ class SessionStore:
         data["updated_at"] = now
         self._write_data(data)
 
+    def record_usage(self, word_count: int, audio_seconds: float) -> dict:
+        data = self._read_data()
+        usage = data.get("usage", {"total_dictations": 0, "total_words": 0, "total_audio_seconds": 0.0})
+        usage["total_dictations"] = usage.get("total_dictations", 0) + 1
+        usage["total_words"] = usage.get("total_words", 0) + word_count
+        usage["total_audio_seconds"] = round(usage.get("total_audio_seconds", 0.0) + audio_seconds, 1)
+        data["usage"] = usage
+        self._write_data(data)
+        return usage
+
+    def get_usage(self) -> dict:
+        data = self._read_data()
+        return data.get("usage", {"total_dictations": 0, "total_words": 0, "total_audio_seconds": 0.0})
+
     def clear_session(self) -> None:
         try:
             if os.path.isfile(self.file_path):

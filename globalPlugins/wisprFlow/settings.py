@@ -1,8 +1,10 @@
 """
 Settings Panel for NVDA Wispr Flow Add-on.
 Accessible wxPython interface registered into NVDA Preferences -> Settings.
+Provides conditional Sign In / Sign Out controls and live API account statistics.
 """
 
+import threading
 import wx
 import gui
 import config
@@ -50,26 +52,44 @@ class WisprFlowSettingsPanel(SettingsPanel):
         self.store = SessionStore()
         self.auth = AuthManager(self.store)
 
-        # 1. Account Section
         session = self.store.get_session()
-        account_name = session.get("email") if session else "Not Logged In"
+        is_logged_in = bool(session and session.get("access_token"))
 
-        self.accountLabel = sHelper.addItem(
-            wx.StaticText(self, label=f"Account: {account_name}")
-        )
+        # 1. Account Action Buttons (Conditional Visibility)
+        self.buttonSizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        buttonSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.loginButton = wx.Button(self, label="Sign In via Browser...")
+        self.loginButton = wx.Button(self, label="&Sign In via Browser...")
         self.loginButton.Bind(wx.EVT_BUTTON, self.onLoginClicked)
-        buttonSizer.Add(self.loginButton, flag=wx.RIGHT, border=5)
+        self.buttonSizer.Add(self.loginButton, flag=wx.RIGHT, border=5)
 
-        self.logoutButton = wx.Button(self, label="Sign Out")
+        self.logoutButton = wx.Button(self, label="&Sign Out")
         self.logoutButton.Bind(wx.EVT_BUTTON, self.onLogoutClicked)
-        buttonSizer.Add(self.logoutButton)
+        self.buttonSizer.Add(self.logoutButton, flag=wx.RIGHT, border=5)
 
-        sHelper.addItem(buttonSizer)
+        self.refreshButton = wx.Button(self, label="&Refresh Account Info")
+        self.refreshButton.Bind(wx.EVT_BUTTON, self.onRefreshClicked)
+        self.buttonSizer.Add(self.refreshButton)
 
-        # 2. Text Insertion Method (Paste vs Type)
+        # Apply initial conditional visibility
+        self.loginButton.Show(not is_logged_in)
+        self.logoutButton.Show(is_logged_in)
+        self.refreshButton.Show(is_logged_in)
+
+        sHelper.addItem(self.buttonSizer)
+
+        # 2. Account Profile & Voice Statistics Box
+        sHelper.addItem(wx.StaticText(self, label="Account Profile & Dictation Statistics:"))
+        self.accountDetailsText = sHelper.addItem(
+            wx.TextCtrl(
+                self,
+                value=self._get_account_display_text(),
+                style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL,
+                size=(-1, 140)
+            )
+        )
+        self.accountDetailsText.SetName("Account Profile and Dictation Statistics")
+
+        # 3. Text Insertion Method (Paste vs Type)
         inputLabels = [label for _, label in INPUT_METHODS]
         self.inputChoice = sHelper.addLabeledControl(
             "Text Insertion Method:",
@@ -80,7 +100,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
         input_idx = next((i for i, (k, _) in enumerate(INPUT_METHODS) if k == cur_input), 0)
         self.inputChoice.SetSelection(input_idx)
 
-        # 3. Spoken Language
+        # 4. Spoken Language
         langLabels = [label for _, label in LANGUAGES]
         self.langChoice = sHelper.addLabeledControl(
             "Spoken Language:",
@@ -91,7 +111,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
         lang_idx = next((i for i, (k, _) in enumerate(LANGUAGES) if k == cur_lang), 0)
         self.langChoice.SetSelection(lang_idx)
 
-        # 4. Sound & Voice Feedback
+        # 5. Sound & Voice Feedback
         self.soundCheckbox = sHelper.addItem(
             wx.CheckBox(self, label="Play sound effects (audio cues)")
         )
@@ -102,7 +122,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
         )
         self.voiceCheckbox.SetValue(config.conf.get("wisprFlow", {}).get("voiceFeedback", True))
 
-        # 5. Automatic Updates
+        # 6. Automatic Updates
         self.updateCheckbox = sHelper.addItem(
             wx.CheckBox(self, label="Automatically check for updates on startup")
         )
@@ -113,7 +133,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
         )
         self.checkUpdatesButton.Bind(wx.EVT_BUTTON, lambda evt: check_for_updates(manual=True))
 
-        # 6. Helpful Shortcut note
+        # 7. Helpful Shortcut note
         sHelper.addItem(
             wx.StaticText(
                 self,
@@ -121,29 +141,86 @@ class WisprFlowSettingsPanel(SettingsPanel):
             )
         )
 
+    def _get_account_display_text(self) -> str:
+        session = self.store.get_session()
+        if not session or not session.get("access_token"):
+            return (
+                "Status: Not Signed In\n\n"
+                "Please click 'Sign In via Browser...' above to connect your Wispr Flow account."
+            )
+
+        # Fetch verified account profile from API / cached store
+        profile = self.auth.get_account_profile()
+        email = profile.get("email") or session.get("email") or "Unknown"
+        user_meta = profile.get("user_metadata", {})
+        name = user_meta.get("full_name") or user_meta.get("name") or session.get("email") or "User"
+        user_id = profile.get("id") or session.get("user_id") or "N/A"
+        app_meta = profile.get("app_metadata", {})
+        provider = app_meta.get("provider", "google").capitalize()
+        created_at = profile.get("created_at", "")[:10] if profile.get("created_at") else "N/A"
+        last_sign_in = profile.get("last_sign_in_at", "")[:10] if profile.get("last_sign_in_at") else "N/A"
+        email_confirmed = "Yes (Verified)" if profile.get("email_confirmed_at") else "Pending"
+
+        usage = self.store.get_usage()
+        total_dictations = usage.get("total_dictations", 0)
+        total_words = usage.get("total_words", 0)
+        audio_sec = usage.get("total_audio_seconds", 0.0)
+        audio_min = audio_sec / 60.0
+
+        details = [
+            f"Account: {email}",
+            f"Display Name: {name}",
+            f"Status: Signed In",
+            f"Login Provider: {provider}",
+            f"User ID: {user_id}",
+            f"Email Verified: {email_confirmed}",
+            f"Member Since: {created_at}",
+            f"Last Sign-In: {last_sign_in}",
+            "",
+            "--- Dictation & Voice Statistics ---",
+            f"Total Dictations: {total_dictations}",
+            f"Total Words Dictated: {total_words}",
+            f"Total Audio Detected: {audio_sec:.1f} seconds ({audio_min:.1f} minutes)",
+        ]
+        return "\n".join(details)
+
+    def _update_auth_state(self, is_logged_in: bool):
+        self.loginButton.Show(not is_logged_in)
+        self.logoutButton.Show(is_logged_in)
+        self.refreshButton.Show(is_logged_in)
+        self.loginButton.Enable()
+        self.logoutButton.Enable()
+        self.accountDetailsText.SetValue(self._get_account_display_text())
+        self.buttonSizer.Layout()
+        self.Layout()
+
     def onLoginClicked(self, event):
         self.loginButton.Disable()
-        self.accountLabel.SetLabel("Account: Opening browser for sign-in...")
+        self.accountDetailsText.SetValue("Opening browser for Wispr Flow sign in. Please complete sign-in in your browser...")
         ui.message("Opening browser for Wispr Flow sign in. Please complete login in your browser.")
 
         def on_success(name):
-            core.callLater(0, self._update_account_ui, f"Account: Logged in as {name}")
+            core.callLater(0, self._update_auth_state, True)
             core.callLater(0, ui.message, f"Wispr Flow sign in successful! Welcome {name}.")
 
         def on_error(err):
-            core.callLater(0, self._update_account_ui, "Account: Sign-in failed")
+            core.callLater(0, self._update_auth_state, False)
             core.callLater(0, ui.message, str(err))
 
         self.auth.start_browser_login(on_success=on_success, on_error=on_error)
 
-    def _update_account_ui(self, label_text):
-        self.accountLabel.SetLabel(label_text)
-        self.loginButton.Enable()
-
     def onLogoutClicked(self, event):
         self.store.clear_session()
-        self.accountLabel.SetLabel("Account: Not Logged In")
+        self._update_auth_state(False)
         ui.message("Signed out of Wispr Flow.")
+
+    def onRefreshClicked(self, event):
+        self.accountDetailsText.SetValue("Refreshing account profile and statistics from API...")
+        def _refresh():
+            self.auth.get_account_profile()
+            core.callLater(0, self.accountDetailsText.SetValue, self._get_account_display_text())
+            core.callLater(0, ui.message, "Account profile and statistics refreshed.")
+        threading.Thread(target=_refresh, daemon=True).start()
 
     def onSave(self):
         sel_input = INPUT_METHODS[self.inputChoice.GetSelection()][0]

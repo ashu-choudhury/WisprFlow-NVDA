@@ -212,6 +212,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 self._pending_retry = False
                 self._is_retrying = False
 
+                # Record usage statistics
+                try:
+                    import wave
+                    duration_sec = 0.0
+                    with wave.open(wav_path, "rb") as wf:
+                        duration_sec = wf.getnframes() / float(wf.getframerate())
+                    words = len(text.strip().split())
+                    self.store.record_usage(word_count=words, audio_seconds=duration_sec)
+                except Exception:
+                    pass
+
                 # 1. Paste text into the focused control first
                 if input_method == "paste":
                     paste_text(text)

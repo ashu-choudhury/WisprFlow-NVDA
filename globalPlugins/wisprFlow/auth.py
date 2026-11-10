@@ -124,3 +124,32 @@ class AuthManager:
         except Exception:
             pass
         return False
+
+    def get_account_profile(self) -> dict:
+        """Fetches full authenticated user profile from the backend API or returns cached profile."""
+        session = self.store.get_session()
+        if not session or not session.get("access_token"):
+            return {}
+
+        self.refresh_access_token_if_needed()
+        session = self.store.get_session()
+        token = session.get("access_token")
+
+        try:
+            req = urllib.request.Request(
+                "https://dodjkfqhwrzqjwkfnthl.supabase.co/auth/v1/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": SUPABASE_ANON_KEY,
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                cur_data = self.store._read_data()
+                cur_data["user_profile"] = data
+                self.store._write_data(cur_data)
+                return data
+        except Exception:
+            return self.store._read_data().get("user_profile", {})
+
