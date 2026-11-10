@@ -4,6 +4,7 @@ Accessible wxPython interface registered into NVDA Preferences -> Settings.
 Provides conditional Sign In / Sign Out controls and live API account statistics.
 """
 
+import os
 import threading
 import wx
 import gui
@@ -24,10 +25,22 @@ LANGUAGES = [
     ("en", "English"),
     ("hi", "Hindi"),
     ("hi_en", "Hinglish (Hindi + English)"),
+    ("bn", "Bengali"),
+    ("ur", "Urdu"),
     ("auto", "Auto-detect"),
     ("es", "Spanish"),
     ("fr", "French"),
     ("de", "German"),
+    ("ar", "Arabic"),
+    ("ta", "Tamil"),
+    ("te", "Telugu"),
+    ("mr", "Marathi"),
+    ("gu", "Gujarati"),
+    ("ja", "Japanese"),
+    ("zh", "Chinese"),
+    ("pt", "Portuguese"),
+    ("ru", "Russian"),
+    ("it", "Italian"),
 ]
 
 INPUT_METHODS = [
@@ -131,7 +144,13 @@ class WisprFlowSettingsPanel(SettingsPanel):
         )
         self.voiceCheckbox.SetValue(config.conf.get("wisprFlow", {}).get("voiceFeedback", True))
 
-        # 6. Automatic Updates
+        # 7. Fail-safe Retranscribe button
+        self.retranscribeButton = sHelper.addItem(
+            wx.Button(self, label="&Re-transcribe Last Audio Recording...")
+        )
+        self.retranscribeButton.Bind(wx.EVT_BUTTON, self.onRetranscribeClicked)
+
+        # 8. Automatic Updates
         self.updateCheckbox = sHelper.addItem(
             wx.CheckBox(self, label="Automatically check for updates on startup")
         )
@@ -142,7 +161,7 @@ class WisprFlowSettingsPanel(SettingsPanel):
         )
         self.checkUpdatesButton.Bind(wx.EVT_BUTTON, lambda evt: check_for_updates(manual=True))
 
-        # 7. Helpful Shortcut note
+        # 9. Helpful Shortcut note
         sHelper.addItem(
             wx.StaticText(
                 self,
@@ -230,6 +249,55 @@ class WisprFlowSettingsPanel(SettingsPanel):
             core.callLater(0, self.accountDetailsText.SetValue, self._get_account_display_text())
             core.callLater(0, ui.message, "Account profile and statistics refreshed.")
         threading.Thread(target=_refresh, daemon=True).start()
+
+    def onRetranscribeClicked(self, event):
+        wav_path = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")),
+            "nvda",
+            "last_dictation.wav"
+        )
+        if not os.path.isfile(wav_path):
+            gui.messageBox(
+                "No previous audio recording found.",
+                "Wispr Flow",
+                wx.OK | wx.ICON_INFORMATION,
+                self
+            )
+            return
+
+        ui.message("Re-transcribing last audio recording...")
+        def _retranscribe():
+            from .flow_client import FlowClient
+            from .keyboard import paste_text, type_text, set_clipboard_text
+            import time
+
+            client = FlowClient(self.store, self.auth)
+            lang = config.conf.get("wisprFlow", {}).get("language", "en")
+            input_method = config.conf.get("wisprFlow", {}).get("inputMethod", "paste")
+            vocab_str = config.conf.get("wisprFlow", {}).get("customVocabulary", "")
+            custom_vocab = [w.strip() for w in vocab_str.split(",") if w.strip()] if vocab_str else None
+
+            try:
+                text = client.transcribe(wav_path, language=lang, custom_vocabulary=custom_vocab)
+                if text:
+                    if input_method == "clipboard_only":
+                        set_clipboard_text(text)
+                        time.sleep(0.08)
+                        core.callLater(0, ui.message, f"Copied to clipboard: {text}")
+                    elif input_method == "paste":
+                        paste_text(text)
+                        time.sleep(0.08)
+                        core.callLater(0, ui.message, text)
+                    else:
+                        type_text(text)
+                        time.sleep(0.08)
+                        core.callLater(0, ui.message, text)
+                else:
+                    core.callLater(0, ui.message, "No speech detected in last recording.")
+            except Exception as e:
+                core.callLater(0, ui.message, f"Re-transcription failed: {e}")
+
+        threading.Thread(target=_retranscribe, daemon=True).start()
 
     def onSave(self):
         sel_input = INPUT_METHODS[self.inputChoice.GetSelection()][0]

@@ -50,7 +50,11 @@ This add-on connects NVDA directly to Wispr Flow's neural transcription servers 
 - **Direct Speech Feedback & Braille Output**:  
   Speaks the transcribed text aloud immediately after insertion so you know exactly what was written, with full Braille display mirroring.
 - **Automatic GitHub Updates**:  
-  Automatically checks GitHub Releases for new updates. If a newer version is found, an accessible dialog displays the changelog with **Install** and **Not Needed** buttons, allowing one-click background installation.
+  Automatically checks GitHub Releases for new updates using a completely non-blocking updater architecture (modeled after trusted add-ons like *Weather_Plus*). An accessible dialog displays the changelog with **Install** and **Not Needed** buttons. When installing, a responsive download progress dialog is displayed, followed by NVDA's native add-on installation prompt.
+- **Multilingual Recognition (19+ Languages)**:  
+  Full support for English, Hindi, Hinglish, Bengali, Urdu, Arabic, Spanish, French, German, Tamil, Telugu, Marathi, Gujarati, Japanese, Chinese, Portuguese, Russian, Italian, and Auto-detect.
+- **Re-transcribe Last Dictation**:  
+  Easily replay or re-transcribe the last recorded audio at any time directly from NVDA Settings.
 - **Toggle Dictation Mode**:  
   Simple, reliable toggle mode: press once to start recording, speak naturally, and press again to transcribe and insert. Includes a 500ms hardware debounce to prevent accidental double-toggles.
 
