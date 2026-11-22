@@ -13,13 +13,13 @@ import tempfile
 import threading
 import urllib.request
 import urllib.error
-import winsound
 import wx
 
 import core
 import gui
 from gui import guiHelper
 import ui
+from .sound import play_sound
 
 GITHUB_RELEASES_URL = "https://api.github.com/repos/ashu-choudhury/WisprFlow-NVDA/releases/latest"
 ADDON_NAME = "wisprFlow"
@@ -196,12 +196,12 @@ class DownloadTask:
     def _on_success(self):
         self._close_dialog()
         try:
-            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            play_sound("done")
         except Exception:
             pass
         # Launch official NVDA installation via file association
         try:
-            os.startfile(self.target_path)
+            wx.LaunchDefaultApplication(self.target_path)
         except Exception as e:
             gui.messageBox(
                 f"Update downloaded to:\n{self.target_path}\n\nPlease open this file to install.",
@@ -235,7 +235,7 @@ class UpdateDialog(wx.Dialog):
 
         # Auditory cue when dialog appears
         try:
-            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            play_sound("error")
         except Exception:
             pass
 

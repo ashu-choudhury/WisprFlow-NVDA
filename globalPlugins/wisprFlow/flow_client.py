@@ -15,7 +15,12 @@ from typing import Optional, List
 # Ensure bundled gRPC matching current Python version is on sys.path
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _py_tag = f"py{sys.version_info.major}{sys.version_info.minor}"
-_lib_path = os.path.join(_current_dir, "lib", _py_tag)
+_platform_tag = "windows" if sys.platform == "win32" else "linux"
+_lib_path = os.path.join(_current_dir, "lib", _platform_tag, _py_tag)
+# Preserve compatibility with existing Windows-only packages while releases
+# transition to the platform-specific layout.
+if sys.platform == "win32" and not os.path.isdir(_lib_path):
+    _lib_path = os.path.join(_current_dir, "lib", _py_tag)
 if os.path.isdir(_lib_path) and _lib_path not in sys.path:
     sys.path.insert(0, _lib_path)
 

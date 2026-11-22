@@ -5,7 +5,6 @@ Toggle Mode: Press once to start recording, press again to stop, transcribe, and
 Includes resilient audio backup and instant retry/cancel fail-safe.
 """
 
-import ctypes
 import os
 import shutil
 import sys
@@ -32,8 +31,6 @@ from .flow_client import FlowClient
 from .session_store import SessionStore
 from .auth import AuthManager
 from .updater import check_for_updates
-
-user32 = ctypes.windll.user32
 
 if hasattr(config.conf, "spec"):
     config.conf.spec["wisprFlow"] = confspec
@@ -249,25 +246,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 except Exception:
                     pass
 
-                # Handle output method
-                if input_method == "clipboard_only":
-                    set_clipboard_text(text)
-                    time.sleep(0.08)
-                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
-                        play_sound("done")
-                    core.callLater(0, ui.message, f"Copied to clipboard: {text}")
-                elif input_method == "paste":
-                    paste_text(text)
-                    time.sleep(0.08)
-                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
-                        play_sound("done")
-                    core.callLater(0, ui.message, text)
-                else:
-                    type_text(text)
-                    time.sleep(0.08)
-                    if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
-                        play_sound("done")
-                    core.callLater(0, ui.message, text)
+                # Linux's clipboard is owned by NVDA's GTK main thread. Queue all
+                # insertion there (it is also safe for the Windows implementation).
+                core.callLater(0, self._deliver_text, text, input_method)
             else:
                 # Actual empty speech (server succeeded but no words found)
                 self._pending_retry = False
@@ -285,3 +266,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
                 play_sound("error")
             notify("Sorry, your request failed. Press shortcut again to resend.")
+
+    def _deliver_text(self, text: str, input_method: str) -> None:
+        if input_method == "clipboard_only":
+            set_clipboard_text(text)
+            message = f"Copied to clipboard: {text}"
+        elif input_method == "paste":
+            paste_text(text)
+            message = text
+        else:
+            type_text(text)
+            message = text
+        if config.conf.get("wisprFlow", {}).get("soundFeedback", True):
+            play_sound("done")
+        ui.message(message)

@@ -76,7 +76,9 @@ This add-on connects NVDA directly to Wispr Flow's neural transcription servers 
 
 - **Minimum NVDA Version**: 2024.1 (Python 3.11+)
 - **Tested & Verified Versions**: NVDA 2024.x, NVDA 2025.x, NVDA 2026.2 (Python 3.13 64-bit)
-- **Supported Operating Systems**: Windows 10, Windows 11 (AMD64)
+- **Supported Operating Systems**: Windows 10/11 (AMD64) and Linux x86_64 with Linda/NVDA.
+  On Linux, install `alsa-utils` so the add-on can use `arecord` for 16 kHz microphone capture.
+  Clipboard paste uses Linda/NVDA's X11/Wayland clipboard support.
 
 ---
 
