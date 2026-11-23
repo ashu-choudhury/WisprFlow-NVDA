@@ -13,7 +13,23 @@ import tempfile
 import zipfile
 
 ADDON_NAME = "wisprFlow"
-VERSION = "1.0.4"
+def get_addon_version():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    manifest_path = os.path.join(current_dir, "manifest.ini")
+
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = f.read()
+
+    import re
+
+    match = re.search(r"^version\s*=\s*(.+)$", manifest, re.MULTILINE)
+
+    if not match:
+        raise RuntimeError("Could not find add-on version in manifest.ini")
+
+    return match.group(1).strip()
+
+VERSION = get_addon_version()
 OUTPUT_FILENAME = f"{ADDON_NAME}-{VERSION}.nvda-addon"
 PYTHON_VERSIONS = ["311", "312", "313"]
 
