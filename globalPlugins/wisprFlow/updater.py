@@ -4,15 +4,22 @@ Follows the non-blocking NVDA updater model (modeled after NVDA's own UpdateDown
 - Non-modal update dialog (UpdateDialog.Show) ensures NVDA main loop stays free.
 - Asynchronous downloading in a dedicated background thread prevents socket I/O freezes.
 - wx.CallAfter throttled progress updates keep the UI responsive without event queue lag.
-- Native NVDA installation hand-off via os.startfile().
+- Native NVDA installation hand-off via wx.LaunchDefaultApplication().
+- Strict asset selection: only accepts the asset whose filename matches the expected version.
+- Downloaded package validation: confirms valid zip archive and matching internal manifest version.
+- No HTML fallback: a clear error is raised when no matching asset exists.
 """
 
+import configparser
+import io
 import json
 import os
+import re
 import tempfile
 import threading
 import urllib.request
 import urllib.error
+import zipfile
 import wx
 
 import core
@@ -24,12 +31,16 @@ from .sound import play_sound
 GITHUB_RELEASES_URL = "https://api.github.com/repos/ashu-choudhury/WisprFlow-NVDA/releases/latest"
 ADDON_NAME = "wisprFlow"
 
+# Expected filename pattern: wisprFlow-<version>.nvda-addon
+# The version part must match the release tag version exactly.
+_ASSET_RE = re.compile(r"^wisprFlow-([^/]+)\.nvda-addon$", re.IGNORECASE)
+
 _active_update_dialog = None
 _active_download_task = None
 
 
 def get_current_version() -> str:
-    """Reads current add-on version from manifest.ini."""
+    """Reads current add-on version from the nearest manifest.ini."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(current_dir, "..", "..", "manifest.ini"),
@@ -42,24 +53,110 @@ def get_current_version() -> str:
                 with open(p, "r", encoding="utf-8") as f:
                     for line in f:
                         if line.strip().startswith("version"):
-                            return line.split("=")[1].strip()
+                            return line.split("=", 1)[1].strip()
             except Exception:
                 pass
-    return "1.0.0"
+    return "0.0.0"
 
 
 def parse_version(v_str: str) -> tuple:
-    """Parses semantic version string into integer tuple for comparison."""
-    cleaned = v_str.lstrip("v").strip()
+    """
+    Parses a semantic version string into a tuple of integers for comparison.
+
+    Handles versions like '1.0.5', 'v1.0.10', '2.0' correctly.
+    Each component is parsed as a plain integer so that 1.0.10 > 1.0.9.
+    Non-numeric suffixes (e.g. '-rc1') are stripped from each part.
+
+    >>> parse_version('1.0.5') == (1, 0, 5)
+    True
+    >>> parse_version('v1.0.10') > parse_version('1.0.9')
+    True
+    >>> parse_version('1.0.10') > parse_version('1.0.5')
+    True
+    >>> parse_version('1.5') > parse_version('1.0.5')
+    False
+    """
+    cleaned = v_str.strip().lstrip("vV")
+    if not cleaned:
+        return ()
     parts = []
-    for p in cleaned.split("."):
-        digits = "".join(filter(str.isdigit, p))
-        parts.append(int(digits) if digits else 0)
+    for part in cleaned.split("."):
+        # Strip any non-numeric suffix (e.g. '-rc1', 'b2')
+        digits = re.match(r"(\d+)", part)
+        parts.append(int(digits.group(1)) if digits else 0)
     return tuple(parts)
 
 
 def is_newer_version(remote_ver: str, current_ver: str) -> bool:
+    """Returns True iff remote_ver is strictly newer than current_ver."""
     return parse_version(remote_ver) > parse_version(current_ver)
+
+
+def select_asset(assets: list, expected_version: str) -> str | None:
+    """
+    Selects the download URL for the asset whose filename matches
+    'wisprFlow-<expected_version>.nvda-addon' exactly.
+
+    Returns the browser_download_url string, or None if no match is found.
+    Never falls back to the first asset or to any HTML page.
+    """
+    target_name = f"{ADDON_NAME}-{expected_version}.nvda-addon"
+    for asset in assets:
+        name = asset.get("name", "")
+        if name.lower() == target_name.lower():
+            url = asset.get("browser_download_url", "")
+            if url:
+                return url
+    return None
+
+
+def validate_addon_package(path: str, expected_version: str) -> None:
+    """
+    Validates a downloaded .nvda-addon file before installation.
+
+    Checks:
+    1. The file is a valid ZIP archive (NVDA add-ons are ZIP files).
+    2. The archive contains a 'manifest.ini' at its root.
+    3. The 'version' field in the internal manifest matches expected_version exactly.
+
+    Raises ValueError with a descriptive message on any failure.
+    """
+    # 1. Valid ZIP?
+    if not zipfile.is_zipfile(path):
+        raise ValueError(
+            f"Downloaded file is not a valid NVDA add-on archive (not a ZIP): {path}"
+        )
+
+    with zipfile.ZipFile(path, "r") as z:
+        # 2. Has manifest.ini?
+        names = z.namelist()
+        if "manifest.ini" not in names:
+            raise ValueError(
+                "Downloaded archive does not contain 'manifest.ini'. "
+                "This may not be a valid NVDA add-on."
+            )
+
+        # 3. Internal version matches?
+        with z.open("manifest.ini") as mf:
+            raw = mf.read().decode("utf-8", errors="replace")
+
+        cfg = configparser.RawConfigParser()
+        cfg.read_string("[addon]\n" + raw)
+        try:
+            internal_version = cfg.get("addon", "version").strip()
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            raise ValueError(
+                "Could not read 'version' from the internal manifest.ini "
+                "of the downloaded archive."
+            )
+
+        if internal_version != expected_version:
+            raise ValueError(
+                f"Version mismatch in downloaded package: "
+                f"expected '{expected_version}', "
+                f"but internal manifest reports '{internal_version}'. "
+                "Refusing to install a mismatched package."
+            )
 
 
 class DownloadTask:
@@ -67,6 +164,7 @@ class DownloadTask:
     Handles asynchronous background downloading of the add-on update package.
     Keeps the NVDA main event loop completely free.
     Updates the progress dialog smoothly via wx.CallAfter.
+    Validates the downloaded archive before handing off to NVDA.
     """
 
     def __init__(self, download_url: str, new_version: str):
@@ -131,8 +229,19 @@ class DownloadTask:
                 wx.CallAfter(self._on_cancel)
                 return
 
+            # Validate the downloaded package before installation
+            try:
+                validate_addon_package(self.target_path, self.new_version)
+            except ValueError as ve:
+                self._cleanup_temp()
+                wx.CallAfter(self._on_error, str(ve))
+                return
+
             wx.CallAfter(self._on_success)
 
+        except urllib.error.URLError as e:
+            self._cleanup_temp()
+            wx.CallAfter(self._on_error, f"Network error: {e.reason}")
         except Exception as e:
             self._cleanup_temp()
             wx.CallAfter(self._on_error, str(e))
@@ -202,7 +311,7 @@ class DownloadTask:
         # Launch official NVDA installation via file association
         try:
             wx.LaunchDefaultApplication(self.target_path)
-        except Exception as e:
+        except Exception:
             gui.messageBox(
                 f"Update downloaded to:\n{self.target_path}\n\nPlease open this file to install.",
                 "Wispr Flow Update",
@@ -295,6 +404,10 @@ def check_for_updates(manual: bool = False):
     """
     Checks GitHub Releases API in a separate background thread.
     Presents UpdateDialog non-modally without interrupting NVDA.
+
+    Asset selection is strict:
+    - Only the asset named 'wisprFlow-<remote_version>.nvda-addon' is accepted.
+    - If no such asset exists, a clear error is reported; there is no HTML fallback.
     """
     def _worker():
         current_ver = get_current_version()
@@ -306,61 +419,118 @@ def check_for_updates(manual: bool = False):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
-            remote_ver = data.get("tag_name", "").lstrip("v")
-            changelog = data.get("body", "")
-
-            # Locate .nvda-addon asset
-            download_url = None
-            for asset in data.get("assets", []):
-                if asset.get("name", "").endswith(".nvda-addon"):
-                    download_url = asset.get("browser_download_url")
-                    break
-
-            if not download_url:
-                download_url = data.get("html_url")
-
-            if is_newer_version(remote_ver, current_ver):
-                def _show_dialog():
-                    global _active_update_dialog
-                    if _active_update_dialog:
-                        try:
-                            _active_update_dialog.Raise()
-                            _active_update_dialog.SetFocus()
-                            return
-                        except Exception:
-                            _active_update_dialog = None
-
-                    gui.mainFrame.prePopup()
-                    _active_update_dialog = UpdateDialog(
-                        gui.mainFrame,
-                        current_version=current_ver,
-                        new_version=remote_ver,
-                        changelog=changelog,
-                        download_url=download_url
-                    )
-                    _active_update_dialog.Show()
-                    gui.mainFrame.postPopup()
-
-                core.callLater(0, _show_dialog)
-            elif manual:
-                def _notify_up_to_date():
+        except urllib.error.URLError as e:
+            if manual:
+                def _notify_network_error():
                     gui.messageBox(
-                        f"Wispr Flow is up to date.\nInstalled version: {current_ver}",
-                        "Wispr Flow Update",
-                        wx.OK | wx.ICON_INFORMATION,
+                        f"Unable to reach GitHub to check for updates.\n"
+                        f"Please check your internet connection and try again.\n\n"
+                        f"Details: {e.reason}",
+                        "Update Error",
+                        wx.OK | wx.ICON_WARNING,
                         gui.mainFrame
                     )
-                core.callLater(0, _notify_up_to_date)
-
+                core.callLater(0, _notify_network_error)
+            return
         except Exception as e:
             if manual:
                 def _notify_error():
                     gui.messageBox(
-                        f"Unable to check for updates.\nPlease check your internet connection and try again.\n\nDetails: {e}",
+                        f"Unable to check for updates.\n"
+                        f"Please check your internet connection and try again.\n\n"
+                        f"Details: {e}",
                         "Update Error",
                         wx.OK | wx.ICON_WARNING,
                         gui.mainFrame
                     )
                 core.callLater(0, _notify_error)
+            return
+
+        # Parse and validate the remote version from the tag_name field
+        raw_tag = data.get("tag_name", "")
+        if not raw_tag:
+            if manual:
+                def _notify_bad_release():
+                    gui.messageBox(
+                        "The latest GitHub release has no version tag. "
+                        "Cannot determine whether an update is available.",
+                        "Update Error",
+                        wx.OK | wx.ICON_WARNING,
+                        gui.mainFrame
+                    )
+                core.callLater(0, _notify_bad_release)
+            return
+
+        remote_ver = raw_tag.lstrip("v").strip()
+
+        # Validate the remote version string looks sane (digits + dots only)
+        if not re.match(r"^\d+(\.\d+)*$", remote_ver):
+            if manual:
+                def _notify_malformed():
+                    gui.messageBox(
+                        f"The latest GitHub release tag '{raw_tag}' is not a valid "
+                        f"semantic version. Cannot check for updates.",
+                        "Update Error",
+                        wx.OK | wx.ICON_WARNING,
+                        gui.mainFrame
+                    )
+                core.callLater(0, _notify_malformed)
+            return
+
+        changelog = data.get("body", "")
+        assets = data.get("assets", [])
+
+        # Strict asset selection — must match 'wisprFlow-<remote_ver>.nvda-addon'
+        download_url = select_asset(assets, remote_ver)
+
+        if not download_url:
+            if manual:
+                expected_name = f"wisprFlow-{remote_ver}.nvda-addon"
+                available = [a.get("name", "") for a in assets]
+                def _notify_no_asset():
+                    gui.messageBox(
+                        f"No matching add-on package found for version {remote_ver}.\n\n"
+                        f"Expected asset name: {expected_name}\n"
+                        f"Available assets: {', '.join(available) if available else '(none)'}\n\n"
+                        f"Please check the GitHub release page manually.",
+                        "Update Error",
+                        wx.OK | wx.ICON_WARNING,
+                        gui.mainFrame
+                    )
+                core.callLater(0, _notify_no_asset)
+            return
+
+        if is_newer_version(remote_ver, current_ver):
+            def _show_dialog():
+                global _active_update_dialog
+                if _active_update_dialog:
+                    try:
+                        _active_update_dialog.Raise()
+                        _active_update_dialog.SetFocus()
+                        return
+                    except Exception:
+                        _active_update_dialog = None
+
+                gui.mainFrame.prePopup()
+                _active_update_dialog = UpdateDialog(
+                    gui.mainFrame,
+                    current_version=current_ver,
+                    new_version=remote_ver,
+                    changelog=changelog,
+                    download_url=download_url
+                )
+                _active_update_dialog.Show()
+                gui.mainFrame.postPopup()
+
+            core.callLater(0, _show_dialog)
+        elif manual:
+            def _notify_up_to_date():
+                gui.messageBox(
+                    f"Wispr Flow is up to date.\nInstalled version: {current_ver}",
+                    "Wispr Flow Update",
+                    wx.OK | wx.ICON_INFORMATION,
+                    gui.mainFrame
+                )
+            core.callLater(0, _notify_up_to_date)
 
     threading.Thread(target=_worker, daemon=True).start()
